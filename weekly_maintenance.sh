@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# Weekly Maintenance Script for Debian 12+
-
 # Load config
 CONFIG_FILE="/etc/weekly_maintenance.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -10,6 +8,40 @@ else
     echo "ERROR: Config file not found at $CONFIG_FILE"
     exit 1
 fi
+
+TMP_DIR=$(mktemp -d)
+trap "rm -rf $TMP_DIR" EXIT
+
+check_update_and_restart() {
+    echo "Checking for updates..."
+
+    # Clone the repository
+    git clone --depth=1 --branch "$REMOTE_BRANCH" "$GIT_REPO_URL" "$TMP_DIR" >/dev/null 2>&1 || {
+        echo "Failed to clone repo"
+        return 1
+    }
+
+    # Extract remote version
+    REMOTE_VERSION=$(grep "^SCRIPT_VERSION=" "$TMP_DIR/$SCRIPT_NAME" | cut -d'=' -f2 | tr -d '"')
+
+    if [[ "$REMOTE_VERSION" != "$SCRIPT_VERSION" ]]; then
+        echo "New version found: $REMOTE_VERSION (current: $SCRIPT_VERSION)"
+        
+        cp "$TMP_DIR/$SCRIPT_NAME" "$(realpath "$0")"
+        echo "Updated script. Restarting..."
+        exec bash "$(realpath "$0")" "$@"
+    else
+        echo "No update needed. Current version: $SCRIPT_VERSION"
+    fi
+}
+
+if [[ "$AUTO_UPDATE" == "true" ]]; then
+    check_update_and_restart "$@"
+fi
+
+################################################################################################
+# Weekly Maintenance Script for Debian 12+
+# Also known to work with ubuntu 22.10
 
 # Validate required config variables
 if [[ -z "$WEBHOOK_URL" ]]; then
