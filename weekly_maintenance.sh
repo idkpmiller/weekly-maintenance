@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_VERSION="1.1.0"
+SCRIPT_VERSION="1.1.1"
 # Load config
 CONFIG_FILE="/etc/weekly_maintenance.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -42,6 +42,7 @@ fi
 ################################################################################################
 # Weekly Maintenance Script for Debian 12+
 # Also known to work with ubuntu 22.10
+################################################################################################
 
 # Validate required config variables
 if [[ -z "$WEBHOOK_URL" ]]; then
