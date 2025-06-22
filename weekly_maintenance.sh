@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_VERSION="1.1.1"
+SCRIPT_VERSION="1.2.0"
 # Load config
 CONFIG_FILE="/etc/weekly_maintenance.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -11,6 +11,22 @@ fi
 
 TMP_DIR=$(mktemp -d)
 trap "rm -rf $TMP_DIR" EXIT
+
+
+# Variables
+LOG_FILE="/var/log/weekly_maintenance.log"
+HOSTNAME=$(hostname)
+STATUS="Pass"
+FAILED_TASK=""
+ERROR_MSG=""
+TASKS_LEFT=()
+TIMESTAMP="$(date '+%Y%m%d-%H%M')"
+
+# Function to log messages
+log() {
+    echo "$(date '+%Y%m%d-%H:%M:%S') $*" >> "$LOG_FILE"
+}
+
 
 check_update_and_restart() {
     echo "Checking for updates..."
@@ -39,6 +55,59 @@ if [[ "$AUTO_UPDATE" == "true" ]]; then
     check_update_and_restart "$@"
 fi
 
+################################################
+# Function to check Home Assistant state
+###############################################
+check_ha_maintenance_allowed() {
+    # Skip if HA integration is disabled
+    if [[ "$HA_ENABLED" != "true" ]]; then
+        return 0  # Allow maintenance to proceed
+    fi
+    
+    local attempt=1
+    
+    while [[ $attempt -le $HA_RETRY_COUNT ]]; do
+        local response=$(curl -s \
+            --max-time "$HA_TIMEOUT" \
+            -H "Authorization: Bearer $HA_TOKEN" \
+            -H "Content-Type: application/json" \
+            "$HA_URL/api/states/$HA_ENTITY" 2>/dev/null)
+        
+        if [[ $? -eq 0 ]] && [[ -n "$response" ]]; then
+            local state=$(echo "$response" | grep -o '"state":"[^"]*"' | cut -d'"' -f4)
+            
+            if [[ "$state" == "on" ]]; then
+                return 0  # Maintenance allowed
+            elif [[ "$state" == "off" ]]; then
+                return 1  # Maintenance blocked
+            fi
+        fi
+        
+        if [[ $attempt -lt $HA_RETRY_COUNT ]]; then
+            sleep "$HA_RETRY_DELAY"
+        fi
+        ((attempt++))
+    done
+    
+    # Connection failed - apply fallback
+    case "$HA_FALLBACK_ACTION" in
+        "run") return 0 ;;
+        "skip") return 1 ;;
+        *) return 1 ;;
+    esac
+}
+
+# Function to verify maintenance can proceed (with logging)
+verify_maintenance_allowed() {
+    if ! check_ha_maintenance_allowed; then
+        log "Weekly maintenance blocked by Home Assistant - script terminating"
+        exit 0
+    fi
+    log "Weekly maintenance authorized - proceeding with tasks"
+}
+
+verify_maintenance_allowed
+
 ################################################################################################
 # Weekly Maintenance Script for Debian 12+
 # Also known to work with ubuntu 22.10
@@ -49,20 +118,6 @@ if [[ -z "$WEBHOOK_URL" ]]; then
     echo "ERROR: WEBHOOK_URL is not defined in $CONFIG_FILE"
     exit 1
 fi
-
-# Variables
-LOG_FILE="/var/log/weekly_maintenance.log"
-HOSTNAME=$(hostname)
-STATUS="Pass"
-FAILED_TASK=""
-ERROR_MSG=""
-TASKS_LEFT=()
-TIMESTAMP="$(date '+%Y%m%d-%H%M')"
-
-# Function to log messages
-log() {
-    echo "$(date '+%Y%m%d-%H:%M:%S') $*" >> "$LOG_FILE"
-}
 
 # Function to send POST request
 send_post() {
