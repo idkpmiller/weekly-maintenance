@@ -1,5 +1,5 @@
 #!/bin/bash
-SCRIPT_VERSION="1.2.0"
+SCRIPT_VERSION="1.2.1"
 # Load config
 CONFIG_FILE="/etc/weekly_maintenance.conf"
 if [[ -f "$CONFIG_FILE" ]]; then
